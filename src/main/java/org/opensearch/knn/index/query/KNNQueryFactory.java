@@ -6,18 +6,22 @@
 package org.opensearch.knn.index.query;
 
 import lombok.extern.log4j.Log4j2;
-import org.apache.lucene.search.KnnByteVectorQuery;
-import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.join.BitSetProducer;
 import org.apache.lucene.search.join.DiversifyingChildrenByteKnnVectorQuery;
 import org.apache.lucene.search.join.DiversifyingChildrenFloatKnnVectorQuery;
 import org.opensearch.index.query.QueryShardContext;
 import org.opensearch.knn.index.VectorDataType;
+import org.opensearch.knn.index.query.lucene.OpensearchDiversifyingChildrenByteKnnVectorQuery;
+import org.opensearch.knn.index.query.lucene.OpensearchDiversifyingChildrenFloatKnnVectorQuery;
+import org.opensearch.knn.index.query.lucene.OpensearchKnnByteVectorQuery;
+import org.opensearch.knn.index.query.lucene.OpensearchKnnFloatVectorQuery;
 import org.opensearch.knn.index.query.model.AlgoQueryParameters;
+import org.opensearch.knn.index.query.model.HNSWAlgoQueryParameters;
 import org.opensearch.knn.index.util.KNNEngine;
 
 import java.util.Locale;
+import java.util.Optional;
 
 import static org.opensearch.knn.common.KNNConstants.VECTOR_DATA_TYPE_FIELD;
 import static org.opensearch.knn.index.VectorDataType.SUPPORTED_VECTOR_DATA_TYPES;
@@ -101,12 +105,17 @@ public class KNNQueryFactory extends BaseQueryFactory {
                 .build();
         }
 
+        final Integer efSearch = Optional.ofNullable(algoQueryParameters)
+            .filter(HNSWAlgoQueryParameters.class::isInstance)
+            .map(HNSWAlgoQueryParameters.class::cast)
+            .flatMap(HNSWAlgoQueryParameters::getEfSearch)
+            .orElse(null);
         log.debug(String.format("Creating Lucene k-NN query for index: %s \"\", field: %s \"\", k: %d", indexName, fieldName, k));
         switch (vectorDataType) {
             case BYTE:
-                return getKnnByteVectorQuery(fieldName, byteVector, k, filterQuery, parentFilter);
+                return getKnnByteVectorQuery(fieldName, byteVector, k, filterQuery, parentFilter, efSearch);
             case FLOAT:
-                return getKnnFloatVectorQuery(fieldName, vector, k, filterQuery, parentFilter);
+                return getKnnFloatVectorQuery(fieldName, vector, k, filterQuery, parentFilter, efSearch);
             default:
                 throw new IllegalArgumentException(
                     String.format(
@@ -137,12 +146,14 @@ public class KNNQueryFactory extends BaseQueryFactory {
         final byte[] byteVector,
         final int k,
         final Query filterQuery,
-        final BitSetProducer parentFilter
+        final BitSetProducer parentFilter,
+        final Integer efSearch
     ) {
+
         if (parentFilter == null) {
-            return new KnnByteVectorQuery(fieldName, byteVector, k, filterQuery);
+            return new OpensearchKnnByteVectorQuery(fieldName, byteVector, k, filterQuery, efSearch);
         } else {
-            return new DiversifyingChildrenByteKnnVectorQuery(fieldName, byteVector, filterQuery, k, parentFilter);
+            return new OpensearchDiversifyingChildrenByteKnnVectorQuery(fieldName, byteVector, filterQuery, k, parentFilter, efSearch);
         }
     }
 
@@ -155,12 +166,13 @@ public class KNNQueryFactory extends BaseQueryFactory {
         final float[] floatVector,
         final int k,
         final Query filterQuery,
-        final BitSetProducer parentFilter
+        final BitSetProducer parentFilter,
+        final Integer efSearch
     ) {
         if (parentFilter == null) {
-            return new KnnFloatVectorQuery(fieldName, floatVector, k, filterQuery);
+            return new OpensearchKnnFloatVectorQuery(fieldName, floatVector, k, filterQuery, efSearch);
         } else {
-            return new DiversifyingChildrenFloatKnnVectorQuery(fieldName, floatVector, filterQuery, k, parentFilter);
+            return new OpensearchDiversifyingChildrenFloatKnnVectorQuery(fieldName, floatVector, filterQuery, k, parentFilter, efSearch);
         }
     }
 }

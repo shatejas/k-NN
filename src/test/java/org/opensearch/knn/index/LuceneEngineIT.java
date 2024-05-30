@@ -24,6 +24,7 @@ import org.opensearch.knn.KNNResult;
 import org.opensearch.knn.TestUtils;
 import org.opensearch.knn.common.KNNConstants;
 import org.opensearch.knn.index.query.KNNQueryBuilder;
+import org.opensearch.knn.index.query.model.HNSWAlgoQueryParameters;
 import org.opensearch.knn.index.util.KNNEngine;
 
 import java.io.IOException;
@@ -119,7 +120,9 @@ public class LuceneEngineIT extends KNNRestTestCase {
         String secondField = "field-2";
         addDocWithNumericField(INDEX_NAME, Integer.toString(TEST_INDEX_VECTORS.length + 1), secondField, 0L);
 
+        int efSearch = 5;
         validateQueries(spaceType, FIELD_NAME);
+        validateQueries(spaceType, FIELD_NAME, efSearch);
     }
 
     public void testQuery_multipleEngines() throws Exception {
@@ -499,13 +502,27 @@ public class LuceneEngineIT extends KNNRestTestCase {
         }
 
         validateQueries(spaceType, FIELD_NAME);
+        validateQueries(spaceType, FIELD_NAME, 20);
     }
 
     private void validateQueries(SpaceType spaceType, String fieldName) throws Exception {
+        validateQueries(spaceType, fieldName, null);
+    }
+
+    private void validateQueries(SpaceType spaceType, String fieldName, Integer efSearch) throws Exception {
 
         int k = LuceneEngineIT.TEST_INDEX_VECTORS.length;
         for (float[] queryVector : TEST_QUERY_VECTORS) {
-            Response response = searchKNNIndex(INDEX_NAME, new KNNQueryBuilder(fieldName, queryVector, k), k);
+            Response response = searchKNNIndex(
+                INDEX_NAME,
+                KNNQueryBuilder.builder()
+                    .fieldName(fieldName)
+                    .vector(queryVector)
+                    .k(k)
+                    .algoQueryParameters(HNSWAlgoQueryParameters.builder().efSearch(efSearch).build())
+                    .build(),
+                k
+            );
             String responseBody = EntityUtils.toString(response.getEntity());
             List<KNNResult> knnResults = parseSearchResponse(responseBody, fieldName);
             assertEquals(k, knnResults.size());

@@ -9,7 +9,6 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.lucene.search.FloatVectorSimilarityQuery;
 
 import java.util.Locale;
-import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
 import org.opensearch.Version;
@@ -38,6 +37,7 @@ import org.opensearch.knn.index.MethodComponentContext;
 import org.opensearch.knn.index.SpaceType;
 import org.opensearch.knn.index.VectorDataType;
 import org.opensearch.knn.index.mapper.KNNVectorFieldMapper;
+import org.opensearch.knn.index.query.lucene.OpensearchKnnFloatVectorQuery;
 import org.opensearch.knn.index.query.model.HNSWAlgoQueryParameters;
 import org.opensearch.knn.index.query.model.AlgoQueryParameters;
 import org.opensearch.knn.index.util.KNNEngine;
@@ -707,7 +707,7 @@ public class KNNQueryBuilderTests extends KNNTestCase {
 
         // Then
         assertNotNull(query);
-        assertTrue(query.getClass().isAssignableFrom(KnnFloatVectorQuery.class));
+        assertTrue(query.getClass().isAssignableFrom(OpensearchKnnFloatVectorQuery.class));
     }
 
     public void testDoToQuery_whenDoRadiusSearch_whenDistanceThreshold_whenFilter_thenSucceed() {

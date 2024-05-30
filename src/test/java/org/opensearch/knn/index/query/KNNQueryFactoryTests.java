@@ -6,12 +6,9 @@
 package org.opensearch.knn.index.query;
 
 import org.apache.lucene.index.Term;
-import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.join.BitSetProducer;
-import org.apache.lucene.search.join.DiversifyingChildrenByteKnnVectorQuery;
-import org.apache.lucene.search.join.DiversifyingChildrenFloatKnnVectorQuery;
 import org.apache.lucene.search.join.ToChildBlockJoinQuery;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
@@ -23,8 +20,11 @@ import org.opensearch.index.query.TermQueryBuilder;
 import org.opensearch.index.search.NestedHelper;
 import org.opensearch.knn.KNNTestCase;
 import org.opensearch.knn.index.VectorDataType;
-import org.opensearch.knn.index.query.model.HNSWAlgoQueryParameters;
+import org.opensearch.knn.index.query.lucene.OpensearchDiversifyingChildrenByteKnnVectorQuery;
+import org.opensearch.knn.index.query.lucene.OpensearchDiversifyingChildrenFloatKnnVectorQuery;
+import org.opensearch.knn.index.query.lucene.OpensearchKnnFloatVectorQuery;
 import org.opensearch.knn.index.query.model.AlgoQueryParameters;
+import org.opensearch.knn.index.query.model.HNSWAlgoQueryParameters;
 import org.opensearch.knn.index.util.KNNEngine;
 
 import java.util.Arrays;
@@ -81,7 +81,7 @@ public class KNNQueryFactoryTests extends KNNTestCase {
                 testK,
                 DEFAULT_VECTOR_DATA_TYPE_FIELD
             );
-            assertEquals(KnnFloatVectorQuery.class, query.getClass());
+            assertEquals(OpensearchKnnFloatVectorQuery.class, query.getClass());
         }
     }
 
@@ -104,7 +104,7 @@ public class KNNQueryFactoryTests extends KNNTestCase {
                 .filter(FILTER_QUERY_BUILDER)
                 .build();
             Query query = KNNQueryFactory.create(createQueryRequest);
-            assertEquals(KnnFloatVectorQuery.class, query.getClass());
+            assertEquals(OpensearchKnnFloatVectorQuery.class, query.getClass());
         }
     }
 
@@ -177,8 +177,8 @@ public class KNNQueryFactoryTests extends KNNTestCase {
     }
 
     public void testCreate_whenLuceneWithParentFilter_thenReturnDiversifyingQuery() {
-        validateDiversifyingQueryWithParentFilter(VectorDataType.BYTE, DiversifyingChildrenByteKnnVectorQuery.class);
-        validateDiversifyingQueryWithParentFilter(VectorDataType.FLOAT, DiversifyingChildrenFloatKnnVectorQuery.class);
+        validateDiversifyingQueryWithParentFilter(VectorDataType.BYTE, OpensearchDiversifyingChildrenByteKnnVectorQuery.class);
+        validateDiversifyingQueryWithParentFilter(VectorDataType.FLOAT, OpensearchDiversifyingChildrenFloatKnnVectorQuery.class);
     }
 
     public void testCreate_whenNestedVectorFiledAndNonNestedFilterField_thenReturnToChildBlockJoinQueryForFilters() {
