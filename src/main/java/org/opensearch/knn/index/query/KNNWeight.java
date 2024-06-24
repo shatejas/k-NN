@@ -143,19 +143,20 @@ public class KNNWeight extends Weight {
     }
 
     private BitSet getFilteredDocsBitSet(final LeafReaderContext ctx) throws IOException {
-        if (this.filterWeight == null) {
-            return new FixedBitSet(0);
-        }
-
         final Bits liveDocs = ctx.reader().getLiveDocs();
         final int maxDoc = ctx.reader().maxDoc();
 
-        final Scorer scorer = filterWeight.scorer(ctx);
-        if (scorer == null) {
+        Scorer scorer = null;
+        if (filterWeight != null) {
+            scorer = filterWeight.scorer(ctx);
+        }
+
+        if (liveDocs == null && scorer == null) {
             return new FixedBitSet(0);
         }
 
-        return createBitSet(scorer.iterator(), liveDocs, maxDoc);
+        final DocIdSetIterator docIdSetIterator = scorer != null ? scorer.iterator() : DocIdSetIterator.all(maxDoc);
+        return createBitSet(docIdSetIterator, liveDocs, maxDoc);
     }
 
     private BitSet createBitSet(final DocIdSetIterator filteredDocIdsIterator, final Bits liveDocs, int maxDoc) throws IOException {
