@@ -167,6 +167,20 @@ JNIEXPORT jobjectArray JNICALL Java_org_opensearch_knn_jni_FaissService_queryInd
 
 }
 
+JNIEXPORT jobjectArray JNICALL Java_org_opensearch_knn_jni_FaissService_searchIndex
+  (JNIEnv * env, jclass cls, jlong indexPointerJ, jfloatArray queryVectorJ, jint kJ, jobject methodParamsJ, jobject acceptedDocs, jintArray parentIdsJ) {
+
+    try {
+        std::unique_ptr<knn_jni::faiss_wrapper::FaissMethods> faissMethods(new knn_jni::faiss_wrapper::FaissMethods());
+        knn_jni::faiss_wrapper::IndexService indexService(std::move(faissMethods));
+        return indexService.searchIndex(&jniUtil, env, indexPointerJ, queryVectorJ, kJ, methodParamsJ, acceptedDocs, parentIdsJ);
+    } catch (...) {
+        jniUtil.CatchCppExceptionAndThrowJava(env);
+    }
+    return nullptr;
+
+}
+
 JNIEXPORT jobjectArray JNICALL Java_org_opensearch_knn_jni_FaissService_queryBinaryIndexWithFilter
   (JNIEnv * env, jclass cls, jlong indexPointerJ, jbyteArray queryVectorJ, jint kJ, jobject methodParamsJ, jlongArray filteredIdsJ, jint filterIdsTypeJ,  jintArray parentIdsJ) {
 

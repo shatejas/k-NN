@@ -61,6 +61,17 @@ public:
         std::vector<int64_t> ids,
         std::string indexPath,
         std::unordered_map<std::string, jobject> parameters);
+
+    virtual jobjectArray searchIndex(
+        JNIUtilInterface * jniUtil,
+        JNIEnv * env,
+        jlong indexPointerJ,
+        jfloatArray queryVectorJ,
+        jint kJ,
+        jobject methodParamsJ,
+        jobject acceptedDocs,
+        jintArray parentIdsJ);
+
     virtual ~IndexService() = default;
 protected:
     std::unique_ptr<FaissMethods> faissMethods;

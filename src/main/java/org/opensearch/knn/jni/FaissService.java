@@ -11,6 +11,7 @@
 
 package org.opensearch.knn.jni;
 
+import org.apache.lucene.util.Bits;
 import org.opensearch.knn.common.KNNConstants;
 import org.opensearch.knn.index.query.KNNQueryResult;
 import org.opensearch.knn.index.util.KNNEngine;
@@ -199,6 +200,15 @@ class FaissService {
         Map<String, ?> methodParameters,
         long[] filterIds,
         int filterIdsType,
+        int[] parentIds
+    );
+
+    public static native KNNQueryResult[] searchIndex(
+        long indexPointer,
+        float[] queryVector,
+        int k,
+        Map<String, ?> methodParameters,
+        Bits acceptedDocs,
         int[] parentIds
     );
 
