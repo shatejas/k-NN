@@ -65,6 +65,12 @@ void knn_jni::JNIUtil::Initialize(JNIEnv *env) {
     this->cachedClasses["org/opensearch/knn/index/query/KNNQueryResult"] = (jclass) env->NewGlobalRef(tempLocalClassRef);
     this->cachedMethods["org/opensearch/knn/index/query/KNNQueryResult:<init>"] = env->GetMethodID(tempLocalClassRef, "<init>", "(IF)V");
     env->DeleteLocalRef(tempLocalClassRef);
+
+    tempLocalClassRef = env->FindClass("Lorg/apache/lucene/util/Bits;");
+    this->cachedClasses["Lorg/apache/lucene/util/Bits;"] = (jclass) env->NewGlobalRef(tempLocalClassRef);
+    this->cachedMethods["Lorg/apache/lucene/util/Bits;:get"] = env->GetMethodID(tempLocalClassRef, "get", "(I)Z");
+    this->cachedMethods["Lorg/apache/lucene/util/Bits;:length"] = env->GetMethodID(tempLocalClassRef, "length", "()I");
+    env->DeleteLocalRef(tempLocalClassRef);
 }
 
 void knn_jni::JNIUtil::Uninitialize(JNIEnv* env) {

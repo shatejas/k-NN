@@ -26,7 +26,6 @@ import org.apache.lucene.util.BitSet;
 import org.apache.lucene.util.BitSetIterator;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.DocIdSetBuilder;
-import org.apache.lucene.util.FixedBitSet;
 import org.opensearch.common.io.PathUtils;
 import org.opensearch.common.lucene.Lucene;
 import org.opensearch.knn.common.KNNConstants;
@@ -108,28 +107,36 @@ public class KNNWeight extends Weight {
 
     @Override
     public Scorer scorer(LeafReaderContext context) throws IOException {
+        final Bits liveDocs = context.reader().getLiveDocs();
+        final int maxDoc = context.reader().maxDoc();
+        if (filterWeight == null) {
+            // Always do approximate search if there are no filters
+            final Map<Integer, Float> annResults = doANNSearch(context, liveDocs);
+            return annResults == null ? KNNScorer.emptyScorer(this) : convertSearchResponseToScorer(annResults);
+        }
 
-        final BitSet filterBitSet = getFilteredDocsBitSet(context);
-        int cardinality = filterBitSet.cardinality();
-        // We don't need to go to JNI layer if no documents are found which satisfy the filters
-        // We should give this condition a deeper look that where it should be placed. For now I feel this is a good
-        // place,
-        if (filterWeight != null && cardinality == 0) {
+        Scorer scorer = filterWeight.scorer(context);
+        if (scorer == null) {
+            // If scorer is not present, there will be no top k that will match; return an empty scorer here
+            // and indirectly an empty response
             return KNNScorer.emptyScorer(this);
         }
-        final Map<Integer, Float> docIdsToScoreMap = new HashMap<>();
+
+        final BitSet filterBitSet = createBitSet(scorer.iterator(), liveDocs, maxDoc);
+        int cardinality = filterBitSet.cardinality();
 
         /*
          * The idea for this optimization is to get K results, we need to atleast look at K vectors in the HNSW graph
          * . Hence, if filtered results are less than K and filter query is present we should shift to exact search.
          * This improves the recall.
          */
-        if (filterWeight != null && canDoExactSearch(cardinality)) {
+        final Map<Integer, Float> docIdsToScoreMap = new HashMap<>();
+        if (canDoExactSearch(cardinality)) {
             docIdsToScoreMap.putAll(doExactSearch(context, filterBitSet, cardinality));
         } else {
-            Map<Integer, Float> annResults = doANNSearch(context, filterBitSet, cardinality);
+            Map<Integer, Float> annResults = doANNSearch(context, filterBitSet);
             if (annResults == null) {
-                return null;
+                return KNNScorer.emptyScorer(this);
             }
             if (canDoExactSearchAfterANNSearch(cardinality, annResults.size())) {
                 log.debug(
@@ -147,22 +154,6 @@ public class KNNWeight extends Weight {
             return KNNScorer.emptyScorer(this);
         }
         return convertSearchResponseToScorer(docIdsToScoreMap);
-    }
-
-    private BitSet getFilteredDocsBitSet(final LeafReaderContext ctx) throws IOException {
-        if (this.filterWeight == null) {
-            return new FixedBitSet(0);
-        }
-
-        final Bits liveDocs = ctx.reader().getLiveDocs();
-        final int maxDoc = ctx.reader().maxDoc();
-
-        final Scorer scorer = filterWeight.scorer(ctx);
-        if (scorer == null) {
-            return new FixedBitSet(0);
-        }
-
-        return createBitSet(scorer.iterator(), liveDocs, maxDoc);
     }
 
     private BitSet createBitSet(final DocIdSetIterator filteredDocIdsIterator, final Bits liveDocs, int maxDoc) throws IOException {
@@ -201,13 +192,11 @@ public class KNNWeight extends Weight {
         return intArray;
     }
 
-    private Map<Integer, Float> doANNSearch(final LeafReaderContext context, final BitSet filterIdsBitSet, final int cardinality)
-        throws IOException {
+    private Map<Integer, Float> doANNSearch(final LeafReaderContext context, final Bits acceptedDocs) throws IOException {
         final SegmentReader reader = Lucene.segmentReader(context.reader());
         String directory = ((FSDirectory) FilterDirectory.unwrap(reader.directory())).getDirectory().toString();
 
         FieldInfo fieldInfo = reader.getFieldInfos().fieldInfo(knnQuery.getField());
-
         if (fieldInfo == null) {
             log.debug("[KNN] Field info not found for {}:{}", knnQuery.getField(), reader.getSegmentName());
             return null;
@@ -268,9 +257,6 @@ public class KNNWeight extends Weight {
         }
 
         // From cardinality select different filterIds type
-        FilterIdsSelector filterIdsSelector = FilterIdsSelector.getFilterIdSelector(filterIdsBitSet, cardinality);
-        long[] filterIds = filterIdsSelector.getFilterIds();
-        FilterIdsSelector.FilterIdsSelectorType filterType = filterIdsSelector.getFilterType();
         // Now that we have the allocation, we need to readLock it
         indexAllocation.readLock();
         try {
@@ -286,22 +272,22 @@ public class KNNWeight extends Weight {
                         knnQuery.getK(),
                         knnQuery.getMethodParameters(),
                         knnEngine,
-                        filterIds,
-                        filterType.getValue(),
+                        null,
+                        0,
                         parentIds
                     );
                 } else {
-                    results = JNIService.queryIndex(
+                    results = JNIService.searchIndex(
                         indexAllocation.getMemoryAddress(),
                         knnQuery.getQueryVector(),
                         knnQuery.getK(),
                         knnQuery.getMethodParameters(),
                         knnEngine,
-                        filterIds,
-                        filterType.getValue(),
+                        acceptedDocs,
                         parentIds
                     );
                 }
+
             } else {
                 results = JNIService.radiusQueryIndex(
                     indexAllocation.getMemoryAddress(),
@@ -310,8 +296,8 @@ public class KNNWeight extends Weight {
                     knnQuery.getMethodParameters(),
                     knnEngine,
                     knnQuery.getContext().getMaxResultWindow(),
-                    filterIds,
-                    filterType.getValue(),
+                    null,
+                    0,
                     parentIds
                 );
             }

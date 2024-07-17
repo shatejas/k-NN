@@ -107,6 +107,15 @@ JNIEXPORT jobjectArray JNICALL Java_org_opensearch_knn_jni_FaissService_queryInd
 JNIEXPORT jobjectArray JNICALL Java_org_opensearch_knn_jni_FaissService_queryBinaryIndexWithFilter
   (JNIEnv *, jclass, jlong, jbyteArray, jint, jobject, jlongArray, jint, jintArray);
 
+
+    /*
+ * Class:     org_opensearch_knn_jni_FaissService
+ * Method:    searchIndex
+ * Signature: (J[FILjava/util/Map;Lorg/apache/lucene/util/Bits;[I)[Lorg/opensearch/knn/index/query/KNNQueryResult;
+ */
+    JNIEXPORT jobjectArray JNICALL Java_org_opensearch_knn_jni_FaissService_searchIndex
+  (JNIEnv *, jclass, jlong, jfloatArray, jint, jobject, jobject, jintArray);
+
 /*
  * Class:     org_opensearch_knn_jni_FaissService
  * Method:    free

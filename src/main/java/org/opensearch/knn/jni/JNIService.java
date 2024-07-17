@@ -12,6 +12,7 @@
 package org.opensearch.knn.jni;
 
 import org.apache.commons.lang.ArrayUtils;
+import org.apache.lucene.util.Bits;
 import org.opensearch.common.Nullable;
 import org.opensearch.knn.index.IndexUtil;
 import org.opensearch.knn.index.query.KNNQueryResult;
@@ -165,6 +166,21 @@ public class JNIService {
         throw new IllegalArgumentException(
             String.format("SetSharedIndexState not supported for provided engine : %s", knnEngine.getName())
         );
+    }
+
+    public static KNNQueryResult[] searchIndex(
+        long indexPointer,
+        float[] queryVector,
+        int k,
+        @Nullable Map<String, ?> methodParameters,
+        KNNEngine knnEngine,
+        Bits acceptedDocs,
+        int[] parentIds
+    ) {
+        if (KNNEngine.FAISS == knnEngine) {
+            return FaissService.searchIndex(indexPointer, queryVector, k, methodParameters, acceptedDocs, parentIds);
+        }
+        throw new IllegalArgumentException();
     }
 
     /**
