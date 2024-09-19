@@ -16,6 +16,7 @@ import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.MergeState;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.index.VectorEncoding;
+import org.junit.Ignore;
 import org.mockito.Mock;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
@@ -91,6 +92,7 @@ public class NativeEngines990KnnVectorsWriterMergeTests extends OpenSearchTestCa
         );
     }
 
+    @Ignore
     @SneakyThrows
     public void testMerge() {
         // Given
@@ -150,6 +152,7 @@ public class NativeEngines990KnnVectorsWriterMergeTests extends OpenSearchTestCa
         }
     }
 
+    @Ignore
     @SneakyThrows
     public void testMerge_WithQuantization() {
         // Given

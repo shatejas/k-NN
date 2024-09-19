@@ -36,6 +36,7 @@ import org.opensearch.knn.quantization.models.quantizationState.QuantizationStat
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.opensearch.knn.common.FieldInfoExtractor.extractVectorDataType;
 import static org.opensearch.knn.index.vectorvalues.KNNVectorValuesFactory.getVectorValues;
@@ -84,12 +85,14 @@ public class NativeEngines990KnnVectorsWriter extends KnnVectorsWriter {
             final VectorDataType vectorDataType = extractVectorDataType(fieldInfo);
             int totalLiveDocs = getLiveDocs(getVectorValues(vectorDataType, field.getDocsWithField(), field.getVectors()));
             if (totalLiveDocs > 0) {
-                KNNVectorValues<?> knnVectorValues = getVectorValues(vectorDataType, field.getDocsWithField(), field.getVectors());
-
-                final QuantizationState quantizationState = train(field.getFieldInfo(), knnVectorValues, totalLiveDocs);
+                final QuantizationState quantizationState = train(
+                    field.getFieldInfo(),
+                    () -> getVectorValues(vectorDataType, field.getDocsWithField(), field.getVectors()),
+                    totalLiveDocs
+                );
                 final NativeIndexWriter writer = NativeIndexWriter.getWriter(fieldInfo, segmentWriteState, quantizationState);
 
-                knnVectorValues = getVectorValues(vectorDataType, field.getDocsWithField(), field.getVectors());
+                KNNVectorValues<?> knnVectorValues = getVectorValues(vectorDataType, field.getDocsWithField(), field.getVectors());
 
                 StopWatch stopWatch = new StopWatch().start();
 
@@ -119,11 +122,16 @@ public class NativeEngines990KnnVectorsWriter extends KnnVectorsWriter {
             return;
         }
 
-        KNNVectorValues<?> knnVectorValues = getKNNVectorValuesForMerge(vectorDataType, fieldInfo, mergeState);
-        final QuantizationState quantizationState = train(fieldInfo, knnVectorValues, totalLiveDocs);
+        final QuantizationState quantizationState = train(fieldInfo, () -> {
+            try {
+                return getKNNVectorValuesForMerge(vectorDataType, fieldInfo, mergeState);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }, totalLiveDocs);
         final NativeIndexWriter writer = NativeIndexWriter.getWriter(fieldInfo, segmentWriteState, quantizationState);
 
-        knnVectorValues = getKNNVectorValuesForMerge(vectorDataType, fieldInfo, mergeState);
+        KNNVectorValues<?> knnVectorValues = getKNNVectorValuesForMerge(vectorDataType, fieldInfo, mergeState);
 
         stopWatch.start();
         writer.mergeIndex(knnVectorValues, totalLiveDocs);
@@ -205,14 +213,18 @@ public class NativeEngines990KnnVectorsWriter extends KnnVectorsWriter {
         }
     }
 
-    private QuantizationState train(final FieldInfo fieldInfo, final KNNVectorValues<?> knnVectorValues, final int totalLiveDocs)
-        throws IOException {
+    private QuantizationState train(
+        final FieldInfo fieldInfo,
+        Supplier<KNNVectorValues<?>> knnVectorValuesSupplier,
+        final int totalLiveDocs
+    ) throws IOException {
 
         final QuantizationService quantizationService = QuantizationService.getInstance();
         final QuantizationParams quantizationParams = quantizationService.getQuantizationParams(fieldInfo);
         QuantizationState quantizationState = null;
         if (quantizationParams != null && totalLiveDocs > 0) {
             initQuantizationStateWriterIfNecessary();
+            KNNVectorValues<?> knnVectorValues = knnVectorValuesSupplier.get();
             quantizationState = quantizationService.train(quantizationParams, knnVectorValues, totalLiveDocs);
             quantizationStateWriter.writeState(fieldInfo.getFieldNumber(), quantizationState);
         }

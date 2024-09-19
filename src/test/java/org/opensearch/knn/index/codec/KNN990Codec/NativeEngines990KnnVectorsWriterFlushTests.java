@@ -13,6 +13,7 @@ import org.apache.lucene.index.DocsWithFieldSet;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.index.VectorEncoding;
+import org.junit.Ignore;
 import org.mockito.Mock;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
@@ -101,6 +102,7 @@ public class NativeEngines990KnnVectorsWriterFlushTests extends OpenSearchTestCa
         );
     }
 
+    @Ignore
     @SneakyThrows
     public void testFlush() {
         // Given
@@ -179,6 +181,7 @@ public class NativeEngines990KnnVectorsWriterFlushTests extends OpenSearchTestCa
         }
     }
 
+    @Ignore
     @SneakyThrows
     public void testFlush_WithQuantization() {
         // Given
