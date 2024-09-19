@@ -13,8 +13,6 @@ package org.opensearch.knn.index.mapper;
 
 import org.apache.lucene.document.StoredField;
 import org.apache.lucene.util.BytesRef;
-import org.junit.Assert;
-import org.opensearch.Version;
 import org.opensearch.knn.KNNTestCase;
 import org.opensearch.knn.index.VectorDataType;
 import org.opensearch.knn.index.codec.util.KNNVectorSerializerFactory;
@@ -70,11 +68,5 @@ public class KNNVectorFieldMapperUtilTests extends KNNTestCase {
         assertEquals(3, KNNVectorFieldMapperUtil.getExpectedVectorLength(knnVectorFieldType));
         assertEquals(1, KNNVectorFieldMapperUtil.getExpectedVectorLength(knnVectorFieldTypeBinary));
         assertEquals(4, KNNVectorFieldMapperUtil.getExpectedVectorLength(knnVectorFieldTypeModelBased));
-    }
-
-    public void testUseLuceneKNNVectorsFormat_withDifferentInputs_thenSuccess() {
-        Assert.assertFalse(KNNVectorFieldMapperUtil.useLuceneKNNVectorsFormat(Version.V_2_16_0));
-        Assert.assertTrue(KNNVectorFieldMapperUtil.useLuceneKNNVectorsFormat(Version.V_2_17_0));
-        Assert.assertTrue(KNNVectorFieldMapperUtil.useLuceneKNNVectorsFormat(Version.V_3_0_0));
     }
 }

@@ -86,19 +86,21 @@ class KNN80DocValuesConsumer extends DocValuesConsumer {
     @Override
     public void merge(MergeState mergeState) {
         try {
+            StopWatch stopWatch = new StopWatch();
+            stopWatch.start();
             delegatee.merge(mergeState);
+            long time_in_millis = stopWatch.stop().totalTime().millis();
+            logger.info("Delegate Merge operation complete in " + time_in_millis + " ms");
             assert mergeState != null;
             assert mergeState.mergeFieldInfos != null;
             for (FieldInfo fieldInfo : mergeState.mergeFieldInfos) {
                 DocValuesType type = fieldInfo.getDocValuesType();
                 if (type == DocValuesType.BINARY && fieldInfo.attributes().containsKey(KNNVectorFieldMapper.KNN_FIELD)) {
-                    StopWatch stopWatch = new StopWatch();
                     stopWatch.start();
                     addKNNBinaryField(fieldInfo, new KNN80DocValuesReader(mergeState), true);
-                    stopWatch.stop();
-                    long time_in_millis = stopWatch.totalTime().millis();
+                    time_in_millis = stopWatch.stop().totalTime().millis();
                     KNNGraphValue.MERGE_TOTAL_TIME_IN_MILLIS.set(KNNGraphValue.MERGE_TOTAL_TIME_IN_MILLIS.getValue() + time_in_millis);
-                    logger.warn("Merge operation complete in " + time_in_millis + " ms");
+                    logger.info("Merge operation complete in " + time_in_millis + " ms");
                 }
             }
         } catch (Exception e) {
