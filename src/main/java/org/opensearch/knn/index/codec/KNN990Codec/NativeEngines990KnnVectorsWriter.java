@@ -97,7 +97,7 @@ public class NativeEngines990KnnVectorsWriter extends KnnVectorsWriter {
 
                 long time_in_millis = stopWatch.stop().totalTime().millis();
                 KNNGraphValue.REFRESH_TOTAL_TIME_IN_MILLIS.incrementBy(time_in_millis);
-                log.debug("Flush took {} ms for vector field [{}]", time_in_millis, fieldInfo.getName());
+                log.info("Flush took {} ms for vector field [{}]", time_in_millis, fieldInfo.getName());
             } else {
                 log.debug("[Flush] No live docs for field {}", fieldInfo.getName());
             }
@@ -107,7 +107,10 @@ public class NativeEngines990KnnVectorsWriter extends KnnVectorsWriter {
     @Override
     public void mergeOneField(final FieldInfo fieldInfo, final MergeState mergeState) throws IOException {
         // This will ensure that we are merging the FlatIndex during force merge.
+        StopWatch stopWatch = new StopWatch().start();
         flatVectorsWriter.mergeOneField(fieldInfo, mergeState);
+        long mergeFlatVectorsTime = stopWatch.stop().totalTime().millis();
+        log.info("Merge FlatVectors took {} ms for vector field [{}]", mergeFlatVectorsTime, fieldInfo.getName());
 
         final VectorDataType vectorDataType = extractVectorDataType(fieldInfo);
         int totalLiveDocs = getLiveDocs(getKNNVectorValuesForMerge(vectorDataType, fieldInfo, mergeState));
@@ -122,13 +125,11 @@ public class NativeEngines990KnnVectorsWriter extends KnnVectorsWriter {
 
         knnVectorValues = getKNNVectorValuesForMerge(vectorDataType, fieldInfo, mergeState);
 
-        StopWatch stopWatch = new StopWatch().start();
-
+        stopWatch.start();
         writer.mergeIndex(knnVectorValues, totalLiveDocs);
-
-        long time_in_millis = stopWatch.stop().totalTime().millis();
-        KNNGraphValue.MERGE_TOTAL_TIME_IN_MILLIS.incrementBy(time_in_millis);
-        log.debug("Merge took {} ms for vector field [{}]", time_in_millis, fieldInfo.getName());
+        long timeInMillis = stopWatch.stop().totalTime().millis();
+        KNNGraphValue.MERGE_TOTAL_TIME_IN_MILLIS.incrementBy(timeInMillis);
+        log.info("Merge took {} ms for vector field [{}]", timeInMillis, fieldInfo.getName());
     }
 
     /**
