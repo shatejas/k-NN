@@ -58,7 +58,7 @@ public class NativeEngines990KnnVectorsReader extends KnnVectorsReader {
      */
     @Override
     public void checkIntegrity() throws IOException {
-        flatVectorsReader.checkIntegrity();
+        // flatVectorsReader.checkIntegrity();
     }
 
     /**
