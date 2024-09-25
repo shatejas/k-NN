@@ -36,7 +36,6 @@ import org.opensearch.knn.quantization.models.quantizationState.QuantizationStat
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Supplier;
 
 import static org.opensearch.knn.common.FieldInfoExtractor.extractVectorDataType;
 import static org.opensearch.knn.index.vectorvalues.KNNVectorValuesFactory.getVectorValues;
@@ -83,19 +82,19 @@ public class NativeEngines990KnnVectorsWriter extends KnnVectorsWriter {
         for (final NativeEngineFieldVectorsWriter<?> field : fields) {
             final FieldInfo fieldInfo = field.getFieldInfo();
             final VectorDataType vectorDataType = extractVectorDataType(fieldInfo);
-            int totalLiveDocs = field.getVectors().size();
+            int totalLiveDocs = getLiveDocs(getVectorValues(vectorDataType, field.getDocsWithField(), field.getVectors()));
             if (totalLiveDocs > 0) {
-                final Supplier<KNNVectorValues<?>> knnVectorValuesSupplier = () -> getVectorValues(
-                    vectorDataType,
-                    field.getDocsWithField(),
-                    field.getVectors()
-                );
-                final QuantizationState quantizationState = train(field.getFieldInfo(), knnVectorValuesSupplier, totalLiveDocs);
+                KNNVectorValues<?> knnVectorValues = getVectorValues(vectorDataType, field.getDocsWithField(), field.getVectors());
+
+                final QuantizationState quantizationState = train(field.getFieldInfo(), knnVectorValues, totalLiveDocs);
                 final NativeIndexWriter writer = NativeIndexWriter.getWriter(fieldInfo, segmentWriteState, quantizationState);
-                final KNNVectorValues<?> knnVectorValues = knnVectorValuesSupplier.get();
+
+                knnVectorValues = getVectorValues(vectorDataType, field.getDocsWithField(), field.getVectors());
 
                 StopWatch stopWatch = new StopWatch().start();
+
                 writer.flushIndex(knnVectorValues, totalLiveDocs);
+
                 long time_in_millis = stopWatch.stop().totalTime().millis();
                 KNNGraphValue.REFRESH_TOTAL_TIME_IN_MILLIS.incrementBy(time_in_millis);
                 log.debug("Flush took {} ms for vector field [{}]", time_in_millis, fieldInfo.getName());
@@ -111,20 +110,17 @@ public class NativeEngines990KnnVectorsWriter extends KnnVectorsWriter {
         flatVectorsWriter.mergeOneField(fieldInfo, mergeState);
 
         final VectorDataType vectorDataType = extractVectorDataType(fieldInfo);
-        final Supplier<KNNVectorValues<?>> knnVectorValuesSupplier = () -> getKNNVectorValuesForMerge(
-            vectorDataType,
-            fieldInfo,
-            mergeState
-        );
-        int totalLiveDocs = getLiveDocs(knnVectorValuesSupplier.get());
+        int totalLiveDocs = getLiveDocs(getKNNVectorValuesForMerge(vectorDataType, fieldInfo, mergeState));
         if (totalLiveDocs == 0) {
             log.debug("[Merge] No live docs for field {}", fieldInfo.getName());
             return;
         }
 
-        final QuantizationState quantizationState = train(fieldInfo, knnVectorValuesSupplier, totalLiveDocs);
+        KNNVectorValues<?> knnVectorValues = getKNNVectorValuesForMerge(vectorDataType, fieldInfo, mergeState);
+        final QuantizationState quantizationState = train(fieldInfo, knnVectorValues, totalLiveDocs);
         final NativeIndexWriter writer = NativeIndexWriter.getWriter(fieldInfo, segmentWriteState, quantizationState);
-        final KNNVectorValues<?> knnVectorValues = knnVectorValuesSupplier.get();
+
+        knnVectorValues = getKNNVectorValuesForMerge(vectorDataType, fieldInfo, mergeState);
 
         StopWatch stopWatch = new StopWatch().start();
 
@@ -195,36 +191,27 @@ public class NativeEngines990KnnVectorsWriter extends KnnVectorsWriter {
         final VectorDataType vectorDataType,
         final FieldInfo fieldInfo,
         final MergeState mergeState
-    ) {
-        try {
-            switch (fieldInfo.getVectorEncoding()) {
-                case FLOAT32:
-                    FloatVectorValues mergedFloats = MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
-                    return getVectorValues(vectorDataType, mergedFloats);
-                case BYTE:
-                    ByteVectorValues mergedBytes = MergedVectorValues.mergeByteVectorValues(fieldInfo, mergeState);
-                    return getVectorValues(vectorDataType, mergedBytes);
-                default:
-                    throw new IllegalStateException("Unsupported vector encoding [" + fieldInfo.getVectorEncoding() + "]");
-            }
-        } catch (final IOException e) {
-            log.error("Unable to merge vectors for field [{}]", fieldInfo.getName(), e);
-            throw new IllegalStateException("Unable to merge vectors for field [" + fieldInfo.getName() + "]", e);
+    ) throws IOException {
+        switch (fieldInfo.getVectorEncoding()) {
+            case FLOAT32:
+                FloatVectorValues mergedFloats = MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
+                return getVectorValues(vectorDataType, mergedFloats);
+            case BYTE:
+                ByteVectorValues mergedBytes = MergedVectorValues.mergeByteVectorValues(fieldInfo, mergeState);
+                return getVectorValues(vectorDataType, mergedBytes);
+            default:
+                throw new IllegalStateException("Unsupported vector encoding [" + fieldInfo.getVectorEncoding() + "]");
         }
     }
 
-    private QuantizationState train(
-        final FieldInfo fieldInfo,
-        final Supplier<KNNVectorValues<?>> knnVectorValuesSupplier,
-        final int totalLiveDocs
-    ) throws IOException {
+    private QuantizationState train(final FieldInfo fieldInfo, final KNNVectorValues<?> knnVectorValues, final int totalLiveDocs)
+        throws IOException {
 
         final QuantizationService quantizationService = QuantizationService.getInstance();
         final QuantizationParams quantizationParams = quantizationService.getQuantizationParams(fieldInfo);
         QuantizationState quantizationState = null;
         if (quantizationParams != null && totalLiveDocs > 0) {
             initQuantizationStateWriterIfNecessary();
-            KNNVectorValues<?> knnVectorValues = knnVectorValuesSupplier.get();
             quantizationState = quantizationService.train(quantizationParams, knnVectorValues, totalLiveDocs);
             quantizationStateWriter.writeState(fieldInfo.getFieldNumber(), quantizationState);
         }

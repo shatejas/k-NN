@@ -44,7 +44,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -177,11 +176,6 @@ public class NativeEngines990KnnVectorsWriterFlushTests extends OpenSearchTestCa
                     throw new RuntimeException(e);
                 }
             });
-
-            knnVectorValuesFactoryMockedStatic.verify(
-                () -> KNNVectorValuesFactory.getVectorValues(any(VectorDataType.class), any(DocsWithFieldSet.class), any()),
-                times(expectedVectorValues.size())
-            );
         }
     }
 
@@ -270,11 +264,6 @@ public class NativeEngines990KnnVectorsWriterFlushTests extends OpenSearchTestCa
                     throw new RuntimeException(e);
                 }
             });
-
-            knnVectorValuesFactoryMockedStatic.verify(
-                () -> KNNVectorValuesFactory.getVectorValues(any(VectorDataType.class), any(DocsWithFieldSet.class), any()),
-                times(expectedVectorValues.size() * 2)
-            );
         }
     }
 
