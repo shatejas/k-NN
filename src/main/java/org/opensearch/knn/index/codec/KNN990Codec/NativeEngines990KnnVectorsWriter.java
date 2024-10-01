@@ -116,7 +116,11 @@ public class NativeEngines990KnnVectorsWriter extends KnnVectorsWriter {
             fieldInfo,
             mergeState
         );
+
+        StopWatch stopWatch = new StopWatch().start();
         int totalLiveDocs = getLiveDocs(knnVectorValuesSupplier.get());
+        log.info("[Merge] live docs time for {} docs is {}", totalLiveDocs, stopWatch.stop().totalTime().millis());
+
         if (totalLiveDocs == 0) {
             log.debug("[Merge] No live docs for field {}", fieldInfo.getName());
             return;
@@ -126,7 +130,7 @@ public class NativeEngines990KnnVectorsWriter extends KnnVectorsWriter {
         final NativeIndexWriter writer = NativeIndexWriter.getWriter(fieldInfo, segmentWriteState, quantizationState);
         final KNNVectorValues<?> knnVectorValues = knnVectorValuesSupplier.get();
 
-        StopWatch stopWatch = new StopWatch().start();
+        stopWatch = new StopWatch().start();
 
         writer.mergeIndex(knnVectorValues, totalLiveDocs);
 
