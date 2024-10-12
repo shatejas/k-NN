@@ -11,6 +11,7 @@
 
 package org.opensearch.knn.index.codec.KNN990Codec;
 
+import lombok.extern.log4j.Log4j2;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
 import org.apache.lucene.index.ByteVectorValues;
@@ -37,6 +38,7 @@ import java.util.Map;
  * Vectors reader class for reading the flat vectors for native engines. The class provides methods for iterating
  * over the vectors and retrieving their values.
  */
+@Log4j2
 public class NativeEngines990KnnVectorsReader extends KnnVectorsReader {
 
     private final FlatVectorsReader flatVectorsReader;
@@ -47,6 +49,12 @@ public class NativeEngines990KnnVectorsReader extends KnnVectorsReader {
         this.segmentReadState = state;
         this.flatVectorsReader = flatVectorsReader;
         loadCacheKeyMap();
+    }
+
+    private NativeEngines990KnnVectorsReader(final NativeEngines990KnnVectorsReader reader, final FlatVectorsReader flatVectorsReader) {
+        this.segmentReadState = reader.segmentReadState;
+        this.flatVectorsReader = flatVectorsReader;
+        quantizationStateCacheKeyPerField = reader.quantizationStateCacheKeyPerField;
     }
 
     /**
@@ -159,6 +167,12 @@ public class NativeEngines990KnnVectorsReader extends KnnVectorsReader {
     @Override
     public void search(String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs) throws IOException {
         throw new UnsupportedOperationException("Search functionality using codec is not supported with Native Engine Reader");
+    }
+
+    @Override
+    public KnnVectorsReader getMergeInstance() {
+        log.info("Getting merge instance for NativeEngines990KnnVectorsReader");
+        return new NativeEngines990KnnVectorsReader(this, flatVectorsReader.getMergeInstance());
     }
 
     /**
