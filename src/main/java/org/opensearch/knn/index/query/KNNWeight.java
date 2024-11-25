@@ -6,6 +6,7 @@
 package org.opensearch.knn.index.query;
 
 import com.google.common.annotations.VisibleForTesting;
+import lombok.Builder;
 import lombok.extern.log4j.Log4j2;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.LeafReaderContext;
@@ -19,6 +20,7 @@ import org.apache.lucene.util.BitSet;
 import org.apache.lucene.util.BitSetIterator;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.FixedBitSet;
+import org.opensearch.common.StopWatch;
 import org.opensearch.common.lucene.Lucene;
 import org.opensearch.knn.common.FieldInfoExtractor;
 import org.opensearch.knn.common.KNNConstants;
@@ -27,11 +29,11 @@ import org.opensearch.knn.index.SpaceType;
 import org.opensearch.knn.index.VectorDataType;
 import org.opensearch.knn.index.codec.util.KNNCodecUtil;
 import org.opensearch.knn.index.codec.util.NativeMemoryCacheKeyHelper;
+import org.opensearch.knn.index.engine.KNNEngine;
 import org.opensearch.knn.index.memory.NativeMemoryAllocation;
 import org.opensearch.knn.index.memory.NativeMemoryCacheManager;
 import org.opensearch.knn.index.memory.NativeMemoryEntryContext;
 import org.opensearch.knn.index.memory.NativeMemoryLoadStrategy;
-import org.opensearch.knn.index.engine.KNNEngine;
 import org.opensearch.knn.index.quantizationservice.QuantizationService;
 import org.opensearch.knn.index.query.ExactSearcher.ExactSearcherContext.ExactSearcherContextBuilder;
 import org.opensearch.knn.indices.ModelDao;
@@ -39,6 +41,10 @@ import org.opensearch.knn.indices.ModelMetadata;
 import org.opensearch.knn.indices.ModelUtil;
 import org.opensearch.knn.jni.JNIService;
 import org.opensearch.knn.plugin.stats.KNNCounter;
+import org.opensearch.search.profile.ContextualProfileBreakdown;
+import org.opensearch.search.profile.query.ProfileScorer;
+import org.opensearch.search.profile.query.ProfileWeight;
+import org.opensearch.search.profile.query.QueryTimingType;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -58,6 +64,7 @@ import static org.opensearch.knn.plugin.stats.KNNCounter.GRAPH_QUERY_ERRORS;
 /**
  * Calculate query weights and build query scorers.
  */
+@Builder
 @Log4j2
 public class KNNWeight extends Weight {
     private static ModelDao modelDao;
@@ -65,31 +72,38 @@ public class KNNWeight extends Weight {
     private final KNNQuery knnQuery;
     private final float boost;
 
-    private final NativeMemoryCacheManager nativeMemoryCacheManager;
+    private final NativeMemoryCacheManager nativeMemoryCacheManager = NativeMemoryCacheManager.getInstance();;
     private final Weight filterWeight;
-    private final ExactSearcher exactSearcher;
+    private final ExactSearcher exactSearcher = DEFAULT_EXACT_SEARCHER;
 
     private static ExactSearcher DEFAULT_EXACT_SEARCHER;
-    private final QuantizationService quantizationService;
+    private final QuantizationService quantizationService = QuantizationService.getInstance();;
+    private ContextualProfileBreakdown<QueryTimingType> knnQueryProfiler;
+    private ContextualProfileBreakdown<QueryTimingType> filterQueryProfiler;
+
 
     public KNNWeight(KNNQuery query, float boost) {
         super(query);
         this.knnQuery = query;
         this.boost = boost;
-        this.nativeMemoryCacheManager = NativeMemoryCacheManager.getInstance();
         this.filterWeight = null;
-        this.exactSearcher = DEFAULT_EXACT_SEARCHER;
-        this.quantizationService = QuantizationService.getInstance();
     }
 
     public KNNWeight(KNNQuery query, float boost, Weight filterWeight) {
         super(query);
         this.knnQuery = query;
         this.boost = boost;
-        this.nativeMemoryCacheManager = NativeMemoryCacheManager.getInstance();
         this.filterWeight = filterWeight;
-        this.exactSearcher = DEFAULT_EXACT_SEARCHER;
-        this.quantizationService = QuantizationService.getInstance();
+    }
+
+    public KNNWeight(KNNQuery query, float boost, Weight filterWeight, ContextualProfileBreakdown<QueryTimingType> knnQueryProfiler,
+                     ContextualProfileBreakdown<QueryTimingType> filterQueryProfiler) {
+        super(query);
+        this.knnQuery = query;
+        this.boost = boost;
+        this.filterWeight = filterWeight;
+        this.knnQueryProfiler = knnQueryProfiler;
+        this.filterQueryProfiler = filterQueryProfiler;
     }
 
     public static void initialize(ModelDao modelDao) {
@@ -111,10 +125,18 @@ public class KNNWeight extends Weight {
     public Scorer scorer(LeafReaderContext context) throws IOException {
         final Map<Integer, Float> docIdToScoreMap = searchLeaf(context, knnQuery.getK());
         if (docIdToScoreMap.isEmpty()) {
-            return KNNScorer.emptyScorer(this);
+            return getProfileScorer(KNNScorer.emptyScorer(this));
         }
         final int maxDoc = Collections.max(docIdToScoreMap.keySet()) + 1;
-        return new KNNScorer(this, ResultUtil.resultMapToDocIds(docIdToScoreMap, maxDoc), docIdToScoreMap, boost);
+        return getProfileScorer(new KNNScorer(this, ResultUtil.resultMapToDocIds(docIdToScoreMap, maxDoc), docIdToScoreMap, boost));
+    }
+
+    protected Scorer getProfileScorer(Scorer scorer) throws IOException {
+        if (knnQueryProfiler != null && filterQueryProfiler != null) {
+            assert filterWeight instanceof ProfileWeight;
+            return new ProfileScorer((ProfileWeight) filterWeight, scorer, filterQueryProfiler);
+        }
+        return scorer;
     }
 
     /**
@@ -126,6 +148,8 @@ public class KNNWeight extends Weight {
      * @return A Map of docId to scores for top k results
      */
     public Map<Integer, Float> searchLeaf(LeafReaderContext context, int k) throws IOException {
+        StopWatch stopWatch = new StopWatch();
+
         final BitSet filterBitSet = getFilteredDocsBitSet(context);
         int cardinality = filterBitSet.cardinality();
         // We don't need to go to JNI layer if no documents are found which satisfy the filters
@@ -142,7 +166,12 @@ public class KNNWeight extends Weight {
         if (isFilteredExactSearchPreferred(cardinality)) {
             return doExactSearch(context, filterBitSet, k);
         }
+        stopWatch.start();
         Map<Integer, Float> docIdsToScoreMap = doANNSearch(context, filterBitSet, cardinality, k);
+        stopWatch.stop();
+        log.info("ANN search last task time {}, total time {}", stopWatch.lastTaskTime().nanos(), stopWatch.totalTime().nanos());
+        log.info("====================================================================");
+
         // See whether we have to perform exact search based on approx search results
         // This is required if there are no native engine files or if approximate search returned
         // results less than K, though we have more than k filtered docs
@@ -225,6 +254,11 @@ public class KNNWeight extends Weight {
         final int cardinality,
         final int k
     ) throws IOException {
+        StopWatch stopWatch = new StopWatch();
+        StopWatch stopWatch2 = new StopWatch();
+        stopWatch2.start();
+
+        stopWatch.start();
         final SegmentReader reader = Lucene.segmentReader(context.reader());
 
         FieldInfo fieldInfo = FieldInfoExtractor.getFieldInfo(reader, knnQuery.getField());
@@ -259,7 +293,9 @@ public class KNNWeight extends Weight {
                 fieldInfo.attributes().getOrDefault(VECTOR_DATA_TYPE_FIELD, VectorDataType.FLOAT.getValue())
             );
         }
+        log.info("FieldInfo extraction time taken {} :: {} ", stopWatch.stop().lastTaskTime().nanos(), stopWatch.totalTime().nanos());
 
+        stopWatch.start();
         final SegmentLevelQuantizationInfo segmentLevelQuantizationInfo = SegmentLevelQuantizationInfo.build(
             reader,
             fieldInfo,
@@ -267,6 +303,10 @@ public class KNNWeight extends Weight {
         );
         // TODO: Change type of vector once more quantization methods are supported
         final byte[] quantizedVector = SegmentLevelQuantizationUtil.quantizeVector(knnQuery.getQueryVector(), segmentLevelQuantizationInfo);
+        stopWatch.stop();
+        log.info("Quantization time taken {} :: {}", stopWatch.lastTaskTime().nanos(), stopWatch.totalTime().nanos());
+
+        stopWatch.start();
 
         List<String> engineFiles = KNNCodecUtil.getEngineFiles(knnEngine.getExtension(), knnQuery.getField(), reader.getSegmentInfo().info);
         if (engineFiles.isEmpty()) {
@@ -274,11 +314,15 @@ public class KNNWeight extends Weight {
             return Collections.emptyMap();
         }
 
+        log.info("Engine files time taken {} :: {}", stopWatch.stop().lastTaskTime().nanos(), stopWatch.totalTime().nanos());
+
         final String vectorIndexFileName = engineFiles.get(0);
         final String cacheKey = NativeMemoryCacheKeyHelper.constructCacheKey(vectorIndexFileName, reader.getSegmentInfo().info);
 
         final KNNQueryResult[] results;
         KNNCounter.GRAPH_QUERY_REQUESTS.increment();
+
+        stopWatch.start();
 
         // We need to first get index allocation
         NativeMemoryAllocation indexAllocation;
@@ -305,18 +349,30 @@ public class KNNWeight extends Weight {
             throw new RuntimeException(e);
         }
 
+        log.info("indexAllocation time taken {} :: {}", stopWatch.stop().lastTaskTime().nanos(), stopWatch.totalTime().nanos());
+
+        stopWatch.start();
         // From cardinality select different filterIds type
         FilterIdsSelector filterIdsSelector = FilterIdsSelector.getFilterIdSelector(filterIdsBitSet, cardinality);
+        log.info("FilterIdSelector time taken {} :: {}", stopWatch.stop().lastTaskTime().nanos(), stopWatch.totalTime().nanos());
+
         long[] filterIds = filterIdsSelector.getFilterIds();
         FilterIdsSelector.FilterIdsSelectorType filterType = filterIdsSelector.getFilterType();
         // Now that we have the allocation, we need to readLock it
+        stopWatch.start();
         indexAllocation.readLock();
         indexAllocation.incRef();
+        log.info("readlock time taken {}", stopWatch.stop().totalTime().nanos());
         try {
+            stopWatch.start();
             if (indexAllocation.isClosed()) {
                 throw new RuntimeException("Index has already been closed");
             }
             int[] parentIds = getParentIdsArray(context);
+            if (knnQueryProfiler != null) {
+                knnQueryProfiler.context(context).getTimer(QueryTimingType.ANN_SEARCH).start();
+            }
+
             if (k > 0) {
                 if (knnQuery.getVectorDataType() == VectorDataType.BINARY
                     || quantizedVector != null && quantizationService.getVectorDataTypeForTransfer(fieldInfo) == VectorDataType.BINARY) {
@@ -362,18 +418,29 @@ public class KNNWeight extends Weight {
         } finally {
             indexAllocation.readUnlock();
             indexAllocation.decRef();
+            if (knnQueryProfiler != null) {
+                knnQueryProfiler.context(context).getTimer(QueryTimingType.ANN_SEARCH).stop();
+            }
+            log.info("ANNsearch internal {} :: {}", stopWatch.stop().lastTaskTime().nanos(), stopWatch.totalTime().nanos());
         }
+
         if (results.length == 0) {
             log.debug("[KNN] Query yielded 0 results");
             return Collections.emptyMap();
         }
 
+
         if (quantizedVector != null) {
             return Arrays.stream(results)
                 .collect(Collectors.toMap(KNNQueryResult::getId, result -> knnEngine.score(result.getScore(), SpaceType.HAMMING)));
         }
-        return Arrays.stream(results)
+
+        stopWatch.start();
+        Map<Integer, Float> scores = Arrays.stream(results)
             .collect(Collectors.toMap(KNNQueryResult::getId, result -> knnEngine.score(result.getScore(), spaceType)));
+        log.info("scoring internal {} :: {}", stopWatch.stop().lastTaskTime().nanos(), stopWatch.totalTime().nanos());
+        log.info("Total time ann method {}", stopWatch2.stop().totalTime().nanos());
+        return scores;
     }
 
     /**
@@ -385,7 +452,17 @@ public class KNNWeight extends Weight {
         final LeafReaderContext leafReaderContext,
         final ExactSearcher.ExactSearcherContext exactSearcherContext
     ) throws IOException {
-        return exactSearcher.searchLeaf(leafReaderContext, exactSearcherContext);
+        if (knnQueryProfiler != null) {
+            knnQueryProfiler.context(leafReaderContext).getTimer(QueryTimingType.EXACT_KNN_SEARCH).start();
+        }
+
+        try {
+            return exactSearcher.searchLeaf(leafReaderContext, exactSearcherContext);
+        } finally {
+            if (knnQueryProfiler != null) {
+                knnQueryProfiler.context(leafReaderContext).getTimer(QueryTimingType.EXACT_KNN_SEARCH).stop();
+            }
+        }
     }
 
     @Override
