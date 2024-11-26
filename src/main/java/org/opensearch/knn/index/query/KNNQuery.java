@@ -24,6 +24,7 @@ import org.opensearch.knn.index.VectorDataType;
 import org.opensearch.knn.index.query.rescore.RescoreContext;
 import org.opensearch.search.internal.ContextIndexSearcher;
 import org.opensearch.search.profile.ContextualProfileBreakdown;
+import org.opensearch.search.profile.Timer;
 import org.opensearch.search.profile.query.ProfileWeight;
 import org.opensearch.search.profile.query.QueryProfiler;
 import org.opensearch.search.profile.query.QueryTimingType;
@@ -211,14 +212,21 @@ public class KNNQuery extends Query {
                 .add(new FieldExistsQuery(this.getField()), BooleanClause.Occur.FILTER)
                 .build();
             final Query rewritten = searcher.rewrite(booleanQuery);
-            final Weight filterWeight = searcher.createWeight(rewritten, ScoreMode.COMPLETE_NO_SCORES, 1f);
 
             if (profiler != null) {
-                return new ProfileWeight(this.getFilterQuery(),
-                        filterWeight,
-                        profiler);
+                Timer timer = profiler.getTimer(QueryTimingType.CREATE_WEIGHT);
+                timer.start();
+
+                try {
+                    return new ProfileWeight(this.getFilterQuery(),
+                            searcher.createWeight(rewritten, ScoreMode.COMPLETE_NO_SCORES, 1f),
+                            profiler);
+                } finally {
+                    timer.stop();
+                }
             }
-            return filterWeight;
+
+            return searcher.createWeight(rewritten, ScoreMode.COMPLETE_NO_SCORES, 1f);
         }
         return null;
     }
