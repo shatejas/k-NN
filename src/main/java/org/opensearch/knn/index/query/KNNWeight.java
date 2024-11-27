@@ -146,9 +146,8 @@ public class KNNWeight extends Weight {
          * . Hence, if filtered results are less than K and filter query is present we should shift to exact search.
          * This improves the recall.
          */
-        if (isFilteredExactSearchPreferred(cardinality)) {
-            return doExactSearch(context, filterBitSet, k);
-        }
+        return doExactSearch(context, filterBitSet, k);
+        /**
         stopWatch = new StopWatch().start();
         KNNTimer.ANN_TIME.start();
         Map<Integer, Float> docIdsToScoreMap = doANNSearch(context, filterBitSet, cardinality, k);
@@ -162,6 +161,7 @@ public class KNNWeight extends Weight {
             return doExactSearch(context, docs, k);
         }
         return docIdsToScoreMap;
+         **/
     }
 
     private BitSet getFilteredDocsBitSet(final LeafReaderContext ctx) throws IOException {
@@ -202,7 +202,6 @@ public class KNNWeight extends Weight {
                 return liveDocs == null || liveDocs.get(doc);
             }
         };
-
 
         return BitSet.of(filterIterator, maxDoc);
     }
