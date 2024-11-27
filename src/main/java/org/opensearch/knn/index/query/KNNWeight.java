@@ -19,6 +19,7 @@ import org.apache.lucene.util.BitSet;
 import org.apache.lucene.util.BitSetIterator;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.FixedBitSet;
+import org.opensearch.common.StopWatch;
 import org.opensearch.common.lucene.Lucene;
 import org.opensearch.knn.common.FieldInfoExtractor;
 import org.opensearch.knn.common.KNNConstants;
@@ -39,6 +40,7 @@ import org.opensearch.knn.indices.ModelMetadata;
 import org.opensearch.knn.indices.ModelUtil;
 import org.opensearch.knn.jni.JNIService;
 import org.opensearch.knn.plugin.stats.KNNCounter;
+import org.opensearch.knn.plugin.stats.KNNTimer;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -126,7 +128,12 @@ public class KNNWeight extends Weight {
      * @return A Map of docId to scores for top k results
      */
     public Map<Integer, Float> searchLeaf(LeafReaderContext context, int k) throws IOException {
+        StopWatch stopWatch = new StopWatch().start();
+        KNNTimer.FILTER_SCORER_TIME.start();
         final BitSet filterBitSet = getFilteredDocsBitSet(context);
+        KNNTimer.FILTER_SCORER_TIME.stop();
+        log.debug("Filter Query execution time {} ms", stopWatch.stop().totalTime().millis());
+
         int cardinality = filterBitSet.cardinality();
         // We don't need to go to JNI layer if no documents are found which satisfy the filters
         // We should give this condition a deeper look that where it should be placed. For now I feel this is a good
@@ -142,7 +149,11 @@ public class KNNWeight extends Weight {
         if (isFilteredExactSearchPreferred(cardinality)) {
             return doExactSearch(context, filterBitSet, k);
         }
+        stopWatch = new StopWatch().start();
+        KNNTimer.ANN_TIME.start();
         Map<Integer, Float> docIdsToScoreMap = doANNSearch(context, filterBitSet, cardinality, k);
+        KNNTimer.ANN_TIME.stop();
+        log.debug("Ann search time {} ms", stopWatch.stop().totalTime().millis());
         // See whether we have to perform exact search based on approx search results
         // This is required if there are no native engine files or if approximate search returned
         // results less than K, though we have more than k filtered docs
@@ -154,12 +165,22 @@ public class KNNWeight extends Weight {
     }
 
     private BitSet getFilteredDocsBitSet(final LeafReaderContext ctx) throws IOException {
-        if (this.filterWeight == null) {
+        final Bits liveDocs = ctx.reader().getLiveDocs();
+        if (this.filterWeight == null && liveDocs == null) {
             return new FixedBitSet(0);
         }
 
-        final Bits liveDocs = ctx.reader().getLiveDocs();
         final int maxDoc = ctx.reader().maxDoc();
+        if (filterWeight == null) {
+            // done only to not do refactor, we can always pass bits
+            final FixedBitSet fixedBitSet = new FixedBitSet(maxDoc);
+            for (int index = 0; index < liveDocs.length(); index++) {
+                if (liveDocs.get(index)) {
+                    fixedBitSet.set(index);
+                }
+            }
+            return fixedBitSet;
+        }
 
         final Scorer scorer = filterWeight.scorer(ctx);
         if (scorer == null) {
@@ -181,6 +202,8 @@ public class KNNWeight extends Weight {
                 return liveDocs == null || liveDocs.get(doc);
             }
         };
+
+
         return BitSet.of(filterIterator, maxDoc);
     }
 
@@ -305,8 +328,11 @@ public class KNNWeight extends Weight {
             throw new RuntimeException(e);
         }
 
+        StopWatch stopWatch = new StopWatch().start();
         // From cardinality select different filterIds type
         FilterIdsSelector filterIdsSelector = FilterIdsSelector.getFilterIdSelector(filterIdsBitSet, cardinality);
+        log.debug("FilterIdsSelector time: {}", stopWatch.stop().totalTime().millis());
+
         long[] filterIds = filterIdsSelector.getFilterIds();
         FilterIdsSelector.FilterIdsSelectorType filterType = filterIdsSelector.getFilterType();
         // Now that we have the allocation, we need to readLock it
@@ -385,7 +411,14 @@ public class KNNWeight extends Weight {
         final LeafReaderContext leafReaderContext,
         final ExactSearcher.ExactSearcherContext exactSearcherContext
     ) throws IOException {
-        return exactSearcher.searchLeaf(leafReaderContext, exactSearcherContext);
+        StopWatch stopWatch = new StopWatch().start();
+        KNNTimer.EXACT_SEARCH_TIME.start();
+        try {
+            return exactSearcher.searchLeaf(leafReaderContext, exactSearcherContext);
+        } finally {
+            KNNTimer.EXACT_SEARCH_TIME.stop();
+            log.debug("Exact search time {} ms", stopWatch.stop().totalTime().millis());
+        }
     }
 
     @Override

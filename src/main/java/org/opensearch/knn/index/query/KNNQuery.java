@@ -10,6 +10,7 @@ import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.extern.log4j.Log4j2;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.FieldExistsQuery;
@@ -19,9 +20,11 @@ import org.apache.lucene.search.QueryVisitor;
 import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.Weight;
 import org.apache.lucene.search.join.BitSetProducer;
+import org.opensearch.common.StopWatch;
 import org.opensearch.knn.index.KNNSettings;
 import org.opensearch.knn.index.VectorDataType;
 import org.opensearch.knn.index.query.rescore.RescoreContext;
+import org.opensearch.knn.plugin.stats.KNNTimer;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -35,6 +38,7 @@ import java.util.Objects;
 @Getter
 @Builder
 @AllArgsConstructor
+@Log4j2
 public class KNNQuery extends Query {
 
     private final String field;
@@ -167,7 +171,11 @@ public class KNNQuery extends Query {
         if (!KNNSettings.isKNNPluginEnabled()) {
             throw new IllegalStateException("KNN plugin is disabled. To enable update knn.plugin.enabled to true");
         }
+        StopWatch stopWatch = new StopWatch().start();
+        KNNTimer.FILTER_WEIGHT_TIME.start();
         final Weight filterWeight = getFilterWeight(searcher);
+        KNNTimer.FILTER_WEIGHT_TIME.stop();
+        log.debug("Filter weight time {} ms", stopWatch.stop().totalTime().millis());
         if (filterWeight != null) {
             return new KNNWeight(this, boost, filterWeight);
         }
