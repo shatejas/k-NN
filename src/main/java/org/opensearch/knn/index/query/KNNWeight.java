@@ -146,9 +146,6 @@ public class KNNWeight extends Weight {
          * . Hence, if filtered results are less than K and filter query is present we should shift to exact search.
          * This improves the recall.
          */
-        if (isFilteredExactSearchPreferred(cardinality)) {
-            return doExactSearch(context, filterBitSet, k);
-        }
         stopWatch = new StopWatch().start();
         KNNTimer.ANN_TIME.start();
         Map<Integer, Float> docIdsToScoreMap = doANNSearch(context, filterBitSet, cardinality, k);
@@ -157,10 +154,6 @@ public class KNNWeight extends Weight {
         // See whether we have to perform exact search based on approx search results
         // This is required if there are no native engine files or if approximate search returned
         // results less than K, though we have more than k filtered docs
-        if (isExactSearchRequire(context, cardinality, docIdsToScoreMap.size())) {
-            final BitSet docs = filterWeight != null ? filterBitSet : null;
-            return doExactSearch(context, docs, k);
-        }
         return docIdsToScoreMap;
     }
 
