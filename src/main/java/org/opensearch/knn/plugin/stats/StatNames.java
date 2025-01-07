@@ -76,6 +76,11 @@ public enum StatNames {
         for (StatNames statName : StatNames.values()) {
             names.add(statName.getName());
         }
+
+        for (KNNTimer knnTimer : KNNTimer.values()) {
+            names.add(knnTimer.getName());
+        }
+
         return names;
     }
 }
