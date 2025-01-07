@@ -16,6 +16,7 @@ import org.opensearch.knn.plugin.stats.suppliers.EventOccurredWithinThresholdSup
 import org.opensearch.knn.plugin.stats.suppliers.KNNCircuitBreakerSupplier;
 import org.opensearch.knn.plugin.stats.suppliers.KNNCounterSupplier;
 import org.opensearch.knn.plugin.stats.suppliers.KNNInnerCacheStatsSupplier;
+import org.opensearch.knn.plugin.stats.suppliers.KNNTimerSupplier;
 import org.opensearch.knn.plugin.stats.suppliers.LibraryInitializedSupplier;
 import org.opensearch.knn.plugin.stats.suppliers.ModelIndexStatusSupplier;
 import org.opensearch.knn.plugin.stats.suppliers.ModelIndexingDegradingSupplier;
@@ -116,6 +117,10 @@ public class KNNStats {
                 StatNames.MAX_DISTANCE_QUERY_WITH_FILTER_REQUESTS.getName(),
                 new KNNStat<>(false, new KNNCounterSupplier(KNNCounter.MAX_DISTANCE_QUERY_WITH_FILTER_REQUESTS))
             );
+
+        for (KNNTimer timer : KNNTimer.values()) {
+            builder.put(timer.getName(), new KNNStat<>(false, new KNNTimerSupplier(timer)));
+        }
     }
 
     private void addNativeMemoryStats(ImmutableMap.Builder<String, KNNStat<?>> builder) {
