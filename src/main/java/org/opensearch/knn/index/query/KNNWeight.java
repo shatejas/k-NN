@@ -20,6 +20,7 @@ import org.apache.lucene.util.BitSet;
 import org.apache.lucene.util.BitSetIterator;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.FixedBitSet;
+import org.opensearch.common.StopWatch;
 import org.opensearch.common.lucene.Lucene;
 import org.opensearch.knn.common.FieldInfoExtractor;
 import org.opensearch.knn.common.KNNConstants;
@@ -40,6 +41,7 @@ import org.opensearch.knn.indices.ModelMetadata;
 import org.opensearch.knn.indices.ModelUtil;
 import org.opensearch.knn.jni.JNIService;
 import org.opensearch.knn.plugin.stats.KNNCounter;
+import org.opensearch.knn.plugin.stats.KNNTimer;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -128,7 +130,12 @@ public class KNNWeight extends Weight {
      * @return A Map of docId to scores for top k results
      */
     public PerLeafResult searchLeaf(LeafReaderContext context, int k) throws IOException {
+        StopWatch stopWatch = new StopWatch().start();
+        KNNTimer.FILTER_SCORER_TIME.start();
         final BitSet filterBitSet = getFilteredDocsBitSet(context);
+        KNNTimer.FILTER_SCORER_TIME.stop();
+        log.debug("Filter Query execution time {} ms", stopWatch.stop().totalTime().millis());
+
         final int maxDoc = context.reader().maxDoc();
         int cardinality = filterBitSet.cardinality();
         // We don't need to go to JNI layer if no documents are found which satisfy the filters
@@ -137,41 +144,38 @@ public class KNNWeight extends Weight {
         if (filterWeight != null && cardinality == 0) {
             return PerLeafResult.EMPTY_RESULT;
         }
-        /*
-         * The idea for this optimization is to get K results, we need to at least look at K vectors in the HNSW graph
-         * . Hence, if filtered results are less than K and filter query is present we should shift to exact search.
-         * This improves the recall.
-         */
-        if (isFilteredExactSearchPreferred(cardinality)) {
-            Map<Integer, Float> result = doExactSearch(context, new BitSetIterator(filterBitSet, cardinality), cardinality, k);
-            return new PerLeafResult(filterWeight == null ? null : filterBitSet, result);
-        }
 
         /*
          * If filters match all docs in this segment, then null should be passed as filterBitSet
          * so that it will not do a bitset look up in bottom search layer.
          */
         final BitSet annFilter = (filterWeight != null && cardinality == maxDoc) ? null : filterBitSet;
-        final Map<Integer, Float> docIdsToScoreMap = doANNSearch(context, annFilter, cardinality, k);
+        stopWatch = new StopWatch().start();
+        KNNTimer.ANN_TIME.start();
+        Map<Integer, Float> result = doANNSearch(context, annFilter, cardinality, k);
+        KNNTimer.ANN_TIME.stop();
+        log.debug("Ann search time {} ms", stopWatch.stop().totalTime().millis());
 
-        // See whether we have to perform exact search based on approx search results
-        // This is required if there are no native engine files or if approximate search returned
-        // results less than K, though we have more than k filtered docs
-        if (isExactSearchRequire(context, cardinality, docIdsToScoreMap.size())) {
-            final BitSetIterator docs = filterWeight != null ? new BitSetIterator(filterBitSet, cardinality) : null;
-            Map<Integer, Float> result = doExactSearch(context, docs, cardinality, k);
-            return new PerLeafResult(filterWeight == null ? null : filterBitSet, result);
-        }
-        return new PerLeafResult(filterWeight == null ? null : filterBitSet, docIdsToScoreMap);
+        return new PerLeafResult(filterWeight == null ? null : filterBitSet, result);
     }
 
     private BitSet getFilteredDocsBitSet(final LeafReaderContext ctx) throws IOException {
-        if (this.filterWeight == null) {
+        final Bits liveDocs = ctx.reader().getLiveDocs();
+        if (this.filterWeight == null && liveDocs == null) {
             return new FixedBitSet(0);
         }
 
-        final Bits liveDocs = ctx.reader().getLiveDocs();
         final int maxDoc = ctx.reader().maxDoc();
+        if (filterWeight == null) {
+            // done only to not do refactor, we can always pass bits
+            final FixedBitSet fixedBitSet = new FixedBitSet(maxDoc);
+            for (int index = 0; index < liveDocs.length(); index++) {
+                if (liveDocs.get(index)) {
+                    fixedBitSet.set(index);
+                }
+            }
+            return fixedBitSet;
+        }
 
         final Scorer scorer = filterWeight.scorer(ctx);
         if (scorer == null) {
