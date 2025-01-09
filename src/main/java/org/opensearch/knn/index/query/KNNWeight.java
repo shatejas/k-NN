@@ -49,6 +49,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 import static org.opensearch.knn.common.KNNConstants.KNN_ENGINE;
@@ -132,9 +133,9 @@ public class KNNWeight extends Weight {
     public PerLeafResult searchLeaf(LeafReaderContext context, int k) throws IOException {
         StopWatch stopWatch = new StopWatch().start();
         KNNTimer.FILTER_SCORER_TIME.start();
-        final BitSet filterBitSet = getFilteredDocsBitSet(context);
+        final BitSet filterBitSet = randomBitSetGenerator(context.reader().maxDoc());
         KNNTimer.FILTER_SCORER_TIME.stop();
-        log.debug("Filter Query execution time {} ms", stopWatch.stop().totalTime().millis());
+        log.info("Filter Query execution time {} ms", stopWatch.stop().totalTime().nanos());
 
         final int maxDoc = context.reader().maxDoc();
         int cardinality = filterBitSet.cardinality();
@@ -147,7 +148,9 @@ public class KNNWeight extends Weight {
 
         final BitSetIterator docs = filterWeight != null ? new BitSetIterator(filterBitSet, cardinality) : null;
         KNNTimer.EXACT_SEARCH_TIME.start();
+        stopWatch = new StopWatch().start();
         Map<Integer, Float> result = doExactSearch(context, docs, cardinality, k);
+        log.info("Exact search time {} ms", stopWatch.stop().totalTime().nanos());
         KNNTimer.EXACT_SEARCH_TIME.stop();
         return new PerLeafResult(filterWeight == null ? null : filterBitSet, result);
     }
@@ -176,6 +179,17 @@ public class KNNWeight extends Weight {
         }
 
         return createBitSet(scorer.iterator(), liveDocs, maxDoc);
+    }
+
+    private FixedBitSet randomBitSetGenerator(int maxDoc) {
+        FixedBitSet bitset = new FixedBitSet(maxDoc);
+        int percent = (int) Math.floor(KNNSettings.getKnnFilterPercent(knnQuery.getIndexName()));
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        int numBitsToSet = percent == 0 ? maxDoc : (int) (maxDoc * (percent / 100.0));
+        for (int i = 0; i < numBitsToSet; i++) {
+            bitset.set(random.nextInt(maxDoc));
+        }
+        return bitset;
     }
 
     private BitSet createBitSet(final DocIdSetIterator filteredDocIdsIterator, final Bits liveDocs, int maxDoc) throws IOException {
