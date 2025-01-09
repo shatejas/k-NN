@@ -91,7 +91,7 @@ public class KNNSettings {
     public static final String QUANTIZATION_STATE_CACHE_EXPIRY_TIME_MINUTES = "knn.quantization.cache.expiry.minutes";
     public static final String KNN_FAISS_AVX512_DISABLED = "knn.faiss.avx512.disabled";
     public static final String KNN_DISK_VECTOR_SHARD_LEVEL_RESCORING_DISABLED = "index.knn.disk.vector.shard_level_rescoring_disabled";
-
+    public static final String KNN_FILTER_PCT = "index.knn.filter.pct";
     /**
      * Default setting values
      *
@@ -303,6 +303,8 @@ public class KNNSettings {
         Dynamic
     );
 
+    public static final Setting<Double> KNN_FILTER_PCT_SETTING = Setting.doubleSetting(KNN_FILTER_PCT, 0, 0, 100, IndexScope, Dynamic);
+
     public static final Setting<Boolean> KNN_FAISS_AVX2_DISABLED_SETTING = Setting.boolSetting(
         KNN_FAISS_AVX2_DISABLED,
         KNN_DEFAULT_FAISS_AVX2_DISABLED_VALUE,
@@ -476,6 +478,10 @@ public class KNNSettings {
             return ADVANCED_FILTERED_EXACT_SEARCH_THRESHOLD_SETTING;
         }
 
+        if (KNN_FILTER_PCT.equals(key)) {
+            return KNN_FILTER_PCT_SETTING;
+        }
+
         if (KNN_FAISS_AVX2_DISABLED.equals(key)) {
             return KNN_FAISS_AVX2_DISABLED_SETTING;
         }
@@ -505,6 +511,7 @@ public class KNNSettings {
 
     public List<Setting<?>> getSettings() {
         List<Setting<?>> settings = Arrays.asList(
+            KNN_FILTER_PCT_SETTING,
             INDEX_KNN_SPACE_TYPE,
             INDEX_KNN_ADVANCED_APPROXIMATE_THRESHOLD_SETTING,
             INDEX_KNN_ALGO_PARAM_M_SETTING,
@@ -576,6 +583,14 @@ public class KNNSettings {
             .index(indexName)
             .getSettings()
             .getAsInt(ADVANCED_FILTERED_EXACT_SEARCH_THRESHOLD, ADVANCED_FILTERED_EXACT_SEARCH_THRESHOLD_DEFAULT_VALUE);
+    }
+
+    public static Double getKnnFilterPercent(final String indexName) {
+        return KNNSettings.state().clusterService.state()
+            .getMetadata()
+            .index(indexName)
+            .getSettings()
+            .getAsDouble(KNN_FILTER_PCT, Double.parseDouble("0.0"));
     }
 
     public static boolean isShardLevelRescoringDisabledForDiskBasedVector(String indexName) {
