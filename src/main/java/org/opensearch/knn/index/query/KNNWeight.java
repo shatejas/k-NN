@@ -20,6 +20,7 @@ import org.apache.lucene.util.BitSet;
 import org.apache.lucene.util.BitSetIterator;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.FixedBitSet;
+import org.opensearch.common.StopWatch;
 import org.opensearch.common.lucene.Lucene;
 import org.opensearch.knn.common.FieldInfoExtractor;
 import org.opensearch.knn.common.KNNConstants;
@@ -47,6 +48,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 import static org.opensearch.knn.common.KNNConstants.KNN_ENGINE;
@@ -128,7 +130,10 @@ public class KNNWeight extends Weight {
      * @return A Map of docId to scores for top k results
      */
     public PerLeafResult searchLeaf(LeafReaderContext context, int k) throws IOException {
-        final BitSet filterBitSet = getFilteredDocsBitSet(context);
+        StopWatch stopWatch = new StopWatch().start();
+        final BitSet filterBitSet = randomBitSetGenerator(context.reader().maxDoc());
+        log.info("Filter Query execution time {} ms", stopWatch.stop().totalTime().millis());
+
         final int maxDoc = context.reader().maxDoc();
         int cardinality = filterBitSet.cardinality();
         // We don't need to go to JNI layer if no documents are found which satisfy the filters
@@ -179,6 +184,18 @@ public class KNNWeight extends Weight {
         }
 
         return createBitSet(scorer.iterator(), liveDocs, maxDoc);
+    }
+
+    private FixedBitSet randomBitSetGenerator(int maxDoc) {
+        FixedBitSet bitset = new FixedBitSet(maxDoc);
+        int percent = (int) Math.floor(KNNSettings.getKnnFilterPercent(knnQuery.getIndexName()));
+        log.info("Percent {}", percent);
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        int numBitsToSet = percent == 0 ? maxDoc : (int) (maxDoc * (percent / 100.0));
+        for (int i = 0; i < numBitsToSet; i++) {
+            bitset.set(random.nextInt(maxDoc));
+        }
+        return bitset;
     }
 
     private BitSet createBitSet(final DocIdSetIterator filteredDocIdsIterator, final Bits liveDocs, int maxDoc) throws IOException {
