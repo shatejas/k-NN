@@ -20,6 +20,7 @@ import org.apache.lucene.util.BitSet;
 import org.apache.lucene.util.BitSetIterator;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.FixedBitSet;
+import org.opensearch.common.StopWatch;
 import org.opensearch.common.lucene.Lucene;
 import org.opensearch.knn.common.FieldInfoExtractor;
 import org.opensearch.knn.common.KNNConstants;
@@ -128,7 +129,9 @@ public class KNNWeight extends Weight {
      * @return A Map of docId to scores for top k results
      */
     public PerLeafResult searchLeaf(LeafReaderContext context, int k) throws IOException {
+        StopWatch stopWatch = new StopWatch().start();
         final BitSet filterBitSet = getFilteredDocsBitSet(context);
+        log.info("FilterBitset creation time {}", stopWatch.stop().totalTime().millis());
         final int maxDoc = context.reader().maxDoc();
         int cardinality = filterBitSet.cardinality();
         // We don't need to go to JNI layer if no documents are found which satisfy the filters
@@ -143,7 +146,9 @@ public class KNNWeight extends Weight {
          * This improves the recall.
          */
         if (isFilteredExactSearchPreferred(cardinality)) {
+            stopWatch = new StopWatch().start();
             Map<Integer, Float> result = doExactSearch(context, new BitSetIterator(filterBitSet, cardinality), cardinality, k);
+            log.info("Exact search time {}", stopWatch.stop().totalTime().millis());
             return new PerLeafResult(filterWeight == null ? null : filterBitSet, result);
         }
 
@@ -152,14 +157,18 @@ public class KNNWeight extends Weight {
          * so that it will not do a bitset look up in bottom search layer.
          */
         final BitSet annFilter = (filterWeight != null && cardinality == maxDoc) ? null : filterBitSet;
+        stopWatch = new StopWatch().start();
         final Map<Integer, Float> docIdsToScoreMap = doANNSearch(context, annFilter, cardinality, k);
+        log.info("ANN search time {}", stopWatch.stop().totalTime().millis());
 
         // See whether we have to perform exact search based on approx search results
         // This is required if there are no native engine files or if approximate search returned
         // results less than K, though we have more than k filtered docs
         if (isExactSearchRequire(context, cardinality, docIdsToScoreMap.size())) {
             final BitSetIterator docs = filterWeight != null ? new BitSetIterator(filterBitSet, cardinality) : null;
+            stopWatch = new StopWatch().start();
             Map<Integer, Float> result = doExactSearch(context, docs, cardinality, k);
+            log.info("Exact search after ANN time {}", stopWatch.stop().totalTime().millis());
             return new PerLeafResult(filterWeight == null ? null : filterBitSet, result);
         }
         return new PerLeafResult(filterWeight == null ? null : filterBitSet, docIdsToScoreMap);
