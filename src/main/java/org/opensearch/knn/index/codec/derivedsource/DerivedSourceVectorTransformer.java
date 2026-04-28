@@ -69,10 +69,10 @@ public class DerivedSourceVectorTransformer {
      */
     public void initialize(String[] includes, String[] excludes) {
         // Filter perFieldDerivedVectorTransformers based on includes/excludes
-        Set<String> fieldsToRemove = getFieldsToExclude(includes, excludes);
-        for (String fieldName : fieldsToRemove) {
-            perFieldDerivedVectorTransformers.remove(fieldName);
-        }
+        // Set<String> fieldsToRemove = getFieldsToExclude(includes, excludes);
+        // for (String fieldName : fieldsToRemove) {
+        // perFieldDerivedVectorTransformers.remove(fieldName);
+        // }
 
         Map<String, Function<Object, Object>> transformerFunctions = new HashMap<>();
         transformerFunctions.putAll(perFieldDerivedVectorTransformers);
