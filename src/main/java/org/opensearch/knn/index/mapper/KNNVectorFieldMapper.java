@@ -983,7 +983,7 @@ public abstract class KNNVectorFieldMapper extends ParametrizedFieldMapper {
      * Derive source using stored field, which would always be present for derived source enabled index field
      */
     @Override
-    protected DerivedFieldGenerator derivedFieldGenerator() {
+    public DerivedFieldGenerator derivedFieldGenerator() {
         // using knn vector fetcher to fetch the vector and passing it as a doc values fetcher
         return new DerivedFieldGenerator(
             mappedFieldType,

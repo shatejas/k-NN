@@ -44,7 +44,7 @@ public class KnnVectorValuesFetcher extends FieldValueFetcher {
                 return values;
             }
             if (vectorValues.advance(docId) == docId) {
-                values.add(vectorValues.getVector());
+                values.add(vectorValues.conditionalCloneVector());
             }
         } catch (Exception e) {
             throw new IOException("Failed to read vector values for document " + docId + " in field " + mappedFieldType.name(), e);
